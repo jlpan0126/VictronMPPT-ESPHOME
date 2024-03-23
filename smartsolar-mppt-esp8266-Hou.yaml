@@ -1,5 +1,5 @@
 substitutions:
-  external_components_source: github://KinDR007/VictronMPPT-ESPHOME@main
+  external_components_source: github://npust-ecrc/VictronMPPT-ESPHOME@main
   lower_devicename: "vtsmartsolar"
   devicename: "SmartSolar_100_20"
   config_version: "v2024.02.25"
