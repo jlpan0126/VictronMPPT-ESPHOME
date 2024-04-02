@@ -293,7 +293,7 @@ interval:
       - mqtt.publish: 
           topic: PBL/UL/
           payload: !lambda |-
-            std::string prefix="[{\"macAddr\": \"Lab-Module-Hou\", \"data\":\"";
+            std::string prefix="[{\"macAddr\": \"Lab-Module-v1\", \"data\":\"";
             std::string postfix="\"}]";
             return {prefix
             +"02A2"+id(PANEL_POWER).state.c_str()
@@ -308,7 +308,7 @@ interval:
       - mqtt.publish: 
           topic: PBL/UL/
           payload: !lambda |-
-            std::string prefix="[{\"macAddr\": \"Lab-Module-Hou\", \"data\":\"";
+            std::string prefix="[{\"macAddr\": \"Lab-Module-v1\", \"data\":\"";
             std::string postfix="\"}]";
             return {prefix
             +"02A0"+id(ELECTRICAL_YIELD).state.c_str()
