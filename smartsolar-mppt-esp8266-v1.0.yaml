@@ -54,7 +54,6 @@ ota:
 
 web_server:
   port: 80
-  log: false
 
 time:
   - platform: homeassistant
@@ -79,26 +78,26 @@ sensor:
     yield_total:
       name: "Yield total"
       id: yield_total
-      filters:
-        # Multiplication factor from W to kW is 0.001
-        - multiply: 0.001
-      unit_of_measurement: kWh
+      # filters:
+      #   # Multiplication factor from W to kW is 0.001
+      #   - multiply: 0.001
+      unit_of_measurement: Wh
       accuracy_decimals: ${accuracy}
     yield_yesterday:
       name: "Yield yesterday"
       id: yield_yesterday
-      filters:
-        # Multiplication factor from W to kW is 0.001
-        - multiply: 0.001
-      unit_of_measurement: kWh
+      # filters:
+      #   # Multiplication factor from W to kW is 0.001
+      #   - multiply: 0.001
+      unit_of_measurement: Wh     
       accuracy_decimals: ${accuracy}
     yield_today:
       name: "Yield today"
       id: yt
-      filters:
-        # Multiplication factor from W to kW is 0.001
-        - multiply: 0.001
-      unit_of_measurement: kWh
+      # filters:
+      #   # Multiplication factor from W to kW is 0.001
+      #   - multiply: 0.001
+      unit_of_measurement: Wh
       accuracy_decimals: ${accuracy}
     panel_power:
       name: "Panel power"
@@ -125,7 +124,7 @@ sensor:
         return abs(id(bc).state*60*id(bv).state);
       }
       return 0;
-    update_interval: 10s
+    update_interval: 1s
     unit_of_measurement: Wh
     device_class: "energy"
 
@@ -138,7 +137,7 @@ sensor:
         return id(minBv).state;
       }
       return id(minBv).state;
-    update_interval: 10s
+    update_interval: 1s
     icon: "mdi:battery"
     unit_of_measurement: V
     device_class: "voltage"
@@ -153,7 +152,7 @@ sensor:
         return id(maxBv).state;
       }
       return id(maxBv).state;
-    update_interval: 10s
+    update_interval: 1s
     icon: "mdi:battery"
     unit_of_measurement: V
     device_class: "voltage"
@@ -295,25 +294,43 @@ interval:
           payload: !lambda |-
             std::string prefix="[{\"macAddr\": \"Lab-Module-v1\", \"data\":\"";
             std::string postfix="\"}]";
+            if(id(day_number).state>=0){
             return {prefix
             +"02A2"+id(PANEL_POWER).state.c_str()
             +"02A3"+id(PANEL_VOLTAGE).state.c_str()
             +"02A7"+id(BATTERY_VOLTAGE).state.c_str()
-            +"12A7"+id(MIN_BATTERY_VOLTAGE).state.c_str()
-            +"22A7"+id(MAX_BATTERY_VOLTAGE).state.c_str()
             +"0276"+id(BATTERY_CURRENT).state.c_str()
             +postfix};
-  - interval: 1hours
+            }
+            return "";
+  - interval: 1min 
     then:
       - mqtt.publish: 
           topic: PBL/UL/
           payload: !lambda |-
             std::string prefix="[{\"macAddr\": \"Lab-Module-v1\", \"data\":\"";
             std::string postfix="\"}]";
+            if((id(minBv).state<=15||id(maxBv).state<=15)&&id(day_number).state>=0){
+            return {prefix
+            +"12A7"+id(MIN_BATTERY_VOLTAGE).state.c_str()
+            +"22A7"+id(MAX_BATTERY_VOLTAGE).state.c_str()
+            +postfix};
+            }
+            return "";
+  - interval: 5min
+    then:
+      - mqtt.publish: 
+          topic: PBL/UL/
+          payload: !lambda |-
+            std::string prefix="[{\"macAddr\": \"Lab-Module-v1\", \"data\":\"";
+            std::string postfix="\"}]";
+            if(id(day_number).state>=0){
             return {prefix
             +"02A0"+id(ELECTRICAL_YIELD).state.c_str()
             +"02A1"+id(ELECTRICAL_CONSUMPTION).state.c_str()
             +postfix};
+            }
+            return "";
 #---------------------upload for MQTT----------------
 switch:
   - platform: restart
