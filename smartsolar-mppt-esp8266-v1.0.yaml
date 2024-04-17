@@ -33,21 +33,23 @@ mqtt:  # 新增
   port: 1883
   username: !secret mqtt_username
   password: !secret mqtt_password
-  id: mqtt_client_hou
+  id: mqtt_client_npust
   reboot_timeout: 0s
   topic_prefix: null
   log_topic: null
+  keepalive: 15min
 
 captive_portal:
 logger:
   baud_rate: 0 #關閉logger監聽
   # level: VERY_VERBOSE #開啟所有log
+  level: WARN
   esp8266_store_log_strings_in_flash: false
 
 # Enable Home Assistant API
-api:
-  password: "pass"
-  reboot_timeout: 0s
+# api:
+#   password: "pass"
+#   reboot_timeout: 0s
 
 ota:
   password: "pass"
@@ -55,8 +57,8 @@ ota:
 web_server:
   port: 80
 
-time:
-  - platform: homeassistant
+# time:
+#   - platform: homeassistant
 
 uart:
   id: uart_bus
@@ -336,3 +338,5 @@ switch:
   - platform: restart
     icon: mdi:reload-alert
     name: "${devicename} Restart"
+  - platform: safe_mode
+    name: "${devicename} Safe mode"
