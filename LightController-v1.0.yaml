@@ -1,0 +1,261 @@
+substitutions:
+  external_components_source: github://jlpan0126/VictronMPPT-ESPHOME@main
+  lower_devicename: "lightcontroller"
+  devicename: "LightController:"
+  config_version: "v2024.05.12"
+  wifi_fast_connect: "true"
+  accuracy: "2"
+  ControllerTopic: "Lab-Module-v1"
+
+external_components:
+  - source: ${external_components_source}
+    refresh: 0s
+
+esphome:
+  name: "${lower_devicename}"
+  on_boot:
+    priority: 200.0
+    then:
+esp32:
+  board: nodemcu-32s
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none
+  fast_connect: $wifi_fast_connect
+  reboot_timeout: 0s
+
+mqtt:  # 新增
+  broker: !secret mqtt_host
+  port: 1883
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  id: mqtt_client
+  reboot_timeout: 0s
+  topic_prefix: null
+  log_topic: null
+
+captive_portal:
+logger:
+  baud_rate: 115200 #0 為關閉logger監聽
+  level: DEBUG #開啟所有log
+  logs:
+    sensor: NONE
+    component: NONE
+
+# Enable Home Assistant API
+# api:
+#   password: "pass"
+#   reboot_timeout: 0s
+
+ota:
+  password: "pass"
+
+web_server:
+  port: 80
+
+i2c: #LCD display
+  sda: GPIO21
+  scl: GPIO22
+display:
+  - platform: lcd_pcf8574
+    dimensions: 16x2
+    address: 0x27 #0x27 or #0x3F
+    lambda: |-
+      it.printf("LUX:%.2lf",id(luxSensor).state);
+      it.strftime(0, 1, "%X", id(my_time).now());
+      it.strftime(11, 1, "%m-%d", id(my_time).now());
+binary_sensor:
+  - platform: gpio
+    pin: GPIO36
+    id: lightThreshold
+    name: "Illuminance threshold"
+    filters:
+      - invert: #預設超過閥值(亮)為OFF->反轉成ON
+  - platform: template
+    name: "MQTT_CONTROLLER_STATUS"
+    id: mqtt_controller_status
+#光電阻閥值
+
+text_sensor: #平台控制器(pin 0)
+  - platform: mqtt_subscribe
+    name: "Data from Controller Topic"
+    id: subscribe_msg_controller
+    topic: WAN-GW/DL/$ControllerTopic
+    on_value:
+      - lambda: |-
+          char macAddr[] = "Lab-Module-v1";//控制器macAddr
+          char *vaildationResult;//驗證傳遞data參數(1F00)
+          char result[14];//儲存完整data參數
+          result[0] = '0';
+          result[1] = '0';//設定回傳前綴字
+          char timer[7];//儲存data時間參數
+          long int_timer=0;//關閉控制器timer
+          std::string prefix="[{\"macAddr\": \"Lab-Module-v1\",\"data\":\"";//回傳MQTT JSON前綴字
+          std::string postfix="\"}]";//回傳MQTT JSON後綴字
+          vaildationResult = strstr(id(subscribe_msg_controller).state.c_str(), "\"data\": \"1F00");//透過本訂閱接收訊息是否為1F00
+          if (vaildationResult != NULL) { //若驗證訊息是1F00
+            char *ptr = strstr(vaildationResult,"1F");//strstr()指向最先找到1F之位置
+            strncpy(result+2, ptr, 10);//即result[2]開始存入完整data參數10碼
+            strncpy(timer, ptr+4, 6);//存入data時間參數
+            result[13]='\0';//結尾
+            timer[6]='\0';//結尾
+            id(mqtt_controller_textTimer).publish_state(timer);//傳遞給textTimer用於準備解析時間參數
+            id(mqtt_client).publish("WAN-GW/UL/Lab-Module-v1",prefix+result+postfix);
+            id(mqtt_controller_text).publish_state(prefix+result+postfix);
+          }
+
+          if(id(mqtt_controller_textTimer).state.c_str() != NULL){//若textTimer有獲得時間參數
+            char *endptr;
+            int_timer = strtol(id(mqtt_controller_textTimer).state.c_str(), &endptr, 16);//hex to int轉型
+            if(int_timer > 0){//大於0(即有設定何時控制器關閉)
+              id(mqtt_client).publish("WAN-GW/UL/Lab-Module-v1","[{\"macAddr\": \"Lab-Module-v1\",\"data\":\"002F0001\"}]");//return ACK2(開啟)
+
+              //TODOsensorcontrol
+              id(lampSwitch).turn_on();
+              id(ledLamp).turn_on().set_brightness(1.0).perform();
+
+              id(mqtt_controller_text).publish_state("[{\"macAddr\": \"Lab-Module-v1\",\"data\":\"002F0001\"}]");//本端紀錄用
+              id(mqtt_controller_status).publish_state(true);//本端紀錄用
+              id(mqtt_controller_timer).publish_state(id(uptime_s).state+int_timer);//紀錄現在裝置運行時間+指定時間給sensor_timer
+            }else{
+              id(mqtt_client).publish("WAN-GW/UL/Lab-Module-v1","[{\"macAddr\": \"Lab-Module-v1\",\"data\":\"002F0000\"}]");//return ACK2(關閉)
+
+              //TODOsensorcontrol
+              id(lampSwitch).turn_off();
+              id(ledLamp).turn_off().perform();
+
+              id(mqtt_controller_status).publish_state(false);//本端紀錄用
+              id(mqtt_controller_text).publish_state("[{\"macAddr\": \"Lab-Module-v1\",\"data\":\"002F0000\"}]");//本端紀錄用
+              id(mqtt_controller_timer).publish_state(0);//清空Timer
+            }
+          }
+  #本端觀察上行(UL)用
+  - platform: template
+    name: "MQTT_CONTROLLER_TEXT"
+    id: mqtt_controller_text
+  - platform: template
+    name: "MQTT_CONTROLLER_TEXT_TIMER"
+    id: mqtt_controller_textTimer
+
+  - platform: template
+    name: "MQTT_LUX_SENSOR"
+    id: mqtt_lux_sensor
+    lambda: |-
+      double value = id(luxSensor).state;
+      char hex_str[5]; // 十六進制再加上一個空字符終結符
+      uint16_t int_value = static_cast<uint16_t>(value); // Convert to unsigned 16-bit integer
+      snprintf(hex_str, sizeof(hex_str), "%04x", int_value);
+      return esphome::optional<std::string>(hex_str);
+    update_interval: 30s
+
+sensor:
+  - platform: adc
+    pin: GPIO39
+    name: "Skylight Illuminance"
+    id: luxSensor
+    update_interval: 1s
+    unit_of_measurement: lux
+    attenuation: 11db
+    filters:
+      - lambda: |-
+          return 10000/pow(x*10,4/3);
+#光敏電阻數值(origin value:0.14~3.15)越低越亮
+#換算reference: https://www.edaboard.com/threads/need-help-converting-ldr-resistance-to-lux.278855/
+#裝置更新時間
+  - platform: uptime
+    name: "${devicename} Uptime"
+    id: uptime_s
+    update_interval: 1s
+    on_value:
+      - lambda: |-
+          int controllerTime=id(mqtt_controller_timer).state;
+          int nowTime=id(uptime_s).state;
+          if(controllerTime !=0 && controllerTime != NULL){
+            if(nowTime==controllerTime){
+              //運行是否超過指定關閉時間
+              id(mqtt_client).publish("WAN-GW/UL/Lab-Module-v1","[{\"macAddr\": \"Lab-Module-v1\",\"data\":\"002F0000\"}]");//return ACK2(關閉)
+
+              //TODOsensorcontrol
+              id(lampSwitch).turn_off();
+              id(ledLamp).turn_off().perform();
+
+              id(mqtt_controller_status).publish_state(false);//本端紀錄用
+              id(mqtt_controller_text).publish_state("[{\"macAddr\": \"Lab-Module-v1\",\"data\":\"002F0000\"}]");//本端紀錄用
+              id(mqtt_controller_timer).publish_state(0);//清空Timer
+            }
+          }
+          
+#儲存裝置時間+指定時間
+  - platform: template
+    name: "MQTT_CONTROLLER_TIMER"
+    id: mqtt_controller_timer
+
+light: #LEDstrip
+  - platform: neopixelbus
+    name: Led
+    id: ledLamp
+    variant: WS2812
+    pin: GPIO3
+    num_leds: 8
+    default_transition_length: 0s
+switch: #Relay
+  - platform: gpio
+    name: "Relay"
+    id: lampSwitch
+    pin: 
+      number: GPIO32
+      inverted: true #預設高平釋放
+    on_turn_on:
+      - mqtt.publish:
+          topic: PBL/UL/
+          payload: 
+            "[{\"macAddr\": \"Lab-Module-v1\",\"data\": \"028e1\"}]"
+    on_turn_off:
+      - mqtt.publish:
+          topic: PBL/UL/
+          payload: 
+            "[{\"macAddr\": \"Lab-Module-v1\",\"data\": \"028e0\"}]"
+time: #while connected internet will read today's time.
+  - platform: sntp
+    id: my_time
+    timezone: Asia/Taipei
+interval:
+  - interval: 1min 
+    then:
+      - mqtt.publish: 
+          topic: PBL/UL/
+          payload: !lambda |-
+            std::string prefix="[{\"macAddr\": \"Lab-Module-v1\", \"data\":\"";
+            std::string postfix="\"}]";
+            if (id(lampSwitch).state) {
+              return {prefix
+              +"0265"+id(mqtt_lux_sensor).state.c_str()+"028e1"
+              +postfix};
+            } else {
+              return {prefix
+              +"0265"+id(mqtt_lux_sensor).state.c_str()+"028e0"
+              +postfix};
+            }
+            return "";
+  - interval: 1s  #Eventlistening Threshold
+    then:
+      if:
+        condition:
+          lambda: |-
+            return id(mqtt_controller_status).state != true;
+        then:
+          if:
+            condition:
+              binary_sensor.is_on: lightThreshold
+            then:
+              - switch.turn_off: 
+                  id: lampSwitch
+              - light.turn_off: 
+                  id: ledLamp
+            else:
+              - switch.turn_on: 
+                  id: lampSwitch
+              - light.turn_on: 
+                  id: ledLamp
