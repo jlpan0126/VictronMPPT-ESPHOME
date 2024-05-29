@@ -92,10 +92,15 @@ text_sensor: #平台控制器(pin 0)
           result[1] = '0';//設定回傳前綴字
           char timer[7];//儲存data時間參數
           long int_timer=0;//關閉控制器timer
+          bool timeFlag = false;//預設不傳入時間參數
           std::string prefix="[{\"macAddr\": \"Lab-Module-v1\",\"data\":\"";//回傳MQTT JSON前綴字
           std::string postfix="\"}]";//回傳MQTT JSON後綴字
-          vaildationResult = strstr(id(subscribe_msg_controller).state.c_str(), "\"data\": \"1F00");//透過本訂閱接收訊息是否為1F00
-          if (vaildationResult != NULL) { //若驗證訊息是1F00
+          vaildationResult = strstr(id(subscribe_msg_controller).state.c_str(), "\"data\": \"0F00");//透過本訂閱接收訊息是否為0F00
+          if(vaildationResult == NULL){
+            vaildationResult = strstr(id(subscribe_msg_controller).state.c_str(), "\"data\": \"1F00");//透過本訂閱接收訊息是否為1F00
+            timeFlag = true;
+          }
+          if (vaildationResult != NULL && timeFlag == true) {//若驗證訊息是1F00
             char *ptr = strstr(vaildationResult,"1F");//strstr()指向最先找到1F之位置
             strncpy(result+2, ptr, 10);//即result[2]開始存入完整data參數10碼
             strncpy(timer, ptr+4, 6);//存入data時間參數
@@ -104,9 +109,39 @@ text_sensor: #平台控制器(pin 0)
             id(mqtt_controller_textTimer).publish_state(timer);//傳遞給textTimer用於準備解析時間參數
             id(mqtt_client).publish("WAN-GW/UL/Lab-Module-v1",prefix+result+postfix);
             id(mqtt_controller_text).publish_state(prefix+result+postfix);
+          }else{//若驗證訊息是0F00
+            char *ptr = strstr(vaildationResult,"0F");//strstr()指向最先找到1F之位置
+            strncpy(result+2, ptr, 6);//即result[2]開始存入完整data參數6碼
+            result[8]='\0';//結尾
+            id(mqtt_client).publish("WAN-GW/UL/Lab-Module-v1",prefix+result+postfix);
+            id(mqtt_controller_text).publish_state(prefix+result+postfix);
+            if(result[7] == '1'){
+              id(mqtt_controller_status).publish_state(true);//紀錄為開啟狀態
+            }else{
+              id(mqtt_controller_status).publish_state(false);//紀錄為關閉狀態
+            }
+            
           }
 
-          if(id(mqtt_controller_textTimer).state.c_str() != NULL){//若textTimer有獲得時間參數
+          if(id(mqtt_controller_status).state){//當無設定時間參數(收到手動開啟訊息)
+            id(mqtt_client).publish("WAN-GW/UL/Lab-Module-v1","[{\"macAddr\": \"Lab-Module-v1\",\"data\":\"002F0001\"}]");//return ACK2(開啟)
+
+            //TODOsensorcontrol
+            id(lampSwitch).turn_on();
+            id(ledLamp).turn_on().set_brightness(1.0).perform();
+
+            id(mqtt_controller_text).publish_state("[{\"macAddr\": \"Lab-Module-v1\",\"data\":\"002F0001\"}]");//本端紀錄用
+          }else{//收到手動關閉訊息
+            id(mqtt_client).publish("WAN-GW/UL/Lab-Module-v1","[{\"macAddr\": \"Lab-Module-v1\",\"data\":\"002F0000\"}]");//return ACK2(關閉)
+
+            //TODOsensorcontrol
+            id(lampSwitch).turn_off();
+            id(ledLamp).turn_off().perform();
+
+            id(mqtt_controller_text).publish_state("[{\"macAddr\": \"Lab-Module-v1\",\"data\":\"002F0000\"}]");//本端紀錄用
+          }
+
+          if(id(mqtt_controller_textTimer).state.c_str() != NULL && timeFlag == true){//若textTimer有獲得時間參數
             char *endptr;
             int_timer = strtol(id(mqtt_controller_textTimer).state.c_str(), &endptr, 16);//hex to int轉型
             if(int_timer > 0){//大於0(即有設定何時控制器關閉)
@@ -119,7 +154,7 @@ text_sensor: #平台控制器(pin 0)
               id(mqtt_controller_text).publish_state("[{\"macAddr\": \"Lab-Module-v1\",\"data\":\"002F0001\"}]");//本端紀錄用
               id(mqtt_controller_status).publish_state(true);//本端紀錄用
               id(mqtt_controller_timer).publish_state(id(uptime_s).state+int_timer);//紀錄現在裝置運行時間+指定時間給sensor_timer
-            }else{
+            }else{//有設定時間且手動控制關閉
               id(mqtt_client).publish("WAN-GW/UL/Lab-Module-v1","[{\"macAddr\": \"Lab-Module-v1\",\"data\":\"002F0000\"}]");//return ACK2(關閉)
 
               //TODOsensorcontrol
