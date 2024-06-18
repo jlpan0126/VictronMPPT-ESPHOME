@@ -110,7 +110,7 @@ text_sensor: #平台控制器(pin 0)
             id(mqtt_client).publish("WAN-GW/UL/Lab-Module-v1",prefix+result+postfix);
             id(mqtt_controller_text).publish_state(prefix+result+postfix);
           }else{//若驗證訊息是0F00
-            char *ptr = strstr(vaildationResult,"0F");//strstr()指向最先找到1F之位置
+            char *ptr = strstr(vaildationResult,"0F");//strstr()指向最先找到0F之位置
             strncpy(result+2, ptr, 6);//即result[2]開始存入完整data參數6碼
             result[8]='\0';//結尾
             id(mqtt_client).publish("WAN-GW/UL/Lab-Module-v1",prefix+result+postfix);
